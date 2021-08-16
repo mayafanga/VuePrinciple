@@ -12,10 +12,16 @@ import { extend, mergeOptions, formatComponentName } from '../util/index'
 
 let uid = 0
 
+/**
+ * 定义 Vue.prototype._init 方法
+ * @params {*} Vue Vue构造函数
+ */
 export function initMixin (Vue: Class<Component>) {
+  // 负责 Vue 的初始化过程
   Vue.prototype._init = function (options?: Object) {
+    // Vue 实例
     const vm: Component = this
-    // a uid
+    // 每个 Vue 实例 都有一个 _uid，并且是一次递增的
     vm._uid = uid++
 
     let startTag, endTag
@@ -35,6 +41,10 @@ export function initMixin (Vue: Class<Component>) {
       // since dynamic options merging is pretty slow, and none of the
       // internal component options needs special treatment.
       // 子组件:性能优化,减少原型链的动态查找，提高执行效率
+      /**
+       * 每个子组件初始化时走这里，这里只做了一些性能优化
+       * 将组件配置对象上的一些深层次属性放到 vm.$options 选项中，以提高代码的执行效率
+       */
       initInternalComponent(vm, options)
     } else {
       // 根组件走这里: 选项合并，将全局配置选项合并到根组件的局部配置上
@@ -50,6 +60,7 @@ export function initMixin (Vue: Class<Component>) {
     }
     /* istanbul ignore else */
     if (process.env.NODE_ENV !== 'production') {
+      //设置代理，将vm实例上的属性代理到 vm._renderProxy
       initProxy(vm)
     } else {
       vm._renderProxy = vm
@@ -88,8 +99,9 @@ export function initMixin (Vue: Class<Component>) {
     //   measure(`vue ${vm._name} init`, startTag, endTag)
     // }
 
-    // 如果存在 el 选项， 自动执行 $mount
+    // 如果发现配置项上有 el 选项，则自动调用 $mount 方法，也就是说有了 el 选项，就不需要再手动调用 $mount，反之，没有 el 则必须手动调用 $mount
     if (vm.$options.el) {
+      // 调用 $mount 方法，进入挂载阶段
       vm.$mount(vm.$options.el)
     }
   }
@@ -117,23 +129,25 @@ export function initInternalComponent (vm: Component, options: InternalComponent
   }
 }
 
-// 从构造函数上解析配置项
+// 从组件构造函数中解析配置对象 options，并合并基类选项
 export function resolveConstructorOptions (Ctor: Class<Component>) {
-  // 从实例构造函数上获取选项
+  // 配置项目
   let options = Ctor.options
   if (Ctor.super) {
+    // 存在基类，递归解析基类构造函数的选项
     const superOptions = resolveConstructorOptions(Ctor.super)
     // 缓存
     const cachedSuperOptions = Ctor.superOptions
     if (superOptions !== cachedSuperOptions) {
-      // 说明基类的配置项发生了更改
+      // 说明基类的配置项发生了更改，需要重新设置
       // super option changed,
       // need to resolve new options.
       Ctor.superOptions = superOptions
       // check if there are any late-modified/attached options (#4976)
-      // 找到更改的选项
+      // 检查 Ctor.options 上是否 有任何 后期修改/附加的选项
       const modifiedOptions = resolveModifiedOptions(Ctor)
       // update base extend options
+      // 如果存在被修改或增加的选项，则合并两个选项
       if (modifiedOptions) {
         // 将更改的选项和 extend 选项合并
         extend(Ctor.extendOptions, modifiedOptions)
@@ -148,10 +162,16 @@ export function resolveConstructorOptions (Ctor: Class<Component>) {
   return options
 }
 
+/**
+ * 解析构造函数选项中后续被修改或者增加的选项
+ */
 function resolveModifiedOptions (Ctor: Class<Component>): ?Object {
   let modified
+  // 构造函数选项
   const latest = Ctor.options
+  //密封的构造函数选项，备份
   const sealed = Ctor.sealedOptions
+  // 对比两个选项，记录不一致的选项
   for (const key in latest) {
     if (latest[key] !== sealed[key]) {
       if (!modified) modified = {}

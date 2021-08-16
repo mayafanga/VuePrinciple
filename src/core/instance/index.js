@@ -12,10 +12,11 @@ function Vue (options) {
   // ) {
   //   warn('Vue is a constructor and should be called with the `new` keyword')
   // }
-  // Vue.prototype._init 方法
+  // 调用Vue.prototype._init 方法，该方法是在 initMixin 中定义的
   this._init(options)
 }
 
+//定义 Vue.prototype._init 方法
 initMixin(Vue)
 stateMixin(Vue)
 eventsMixin(Vue)
