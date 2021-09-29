@@ -36,6 +36,7 @@ const sharedPropertyDefinition = {
   set: noop
 }
 
+// 设置代理，将 key 代理到 target 上
 export function proxy (target: Object, sourceKey: string, key: string) {
   sharedPropertyDefinition.get = function proxyGetter () {
     // this._props.key
@@ -48,26 +49,60 @@ export function proxy (target: Object, sourceKey: string, key: string) {
   Object.defineProperty(target, key, sharedPropertyDefinition)
 }
 
-// 响应式原理的入口
+/**
+ * 两件事：
+ *      数据响应式的入口：分别处理 props、methods、data、computed、watch
+ *      优先级：props、methods、data、computed对象中的属性不能出现重复，优先级和列出顺序一致
+ *              其中 computed 中的 key 不能和 props、data 中的 key 重复，methods 不影响
+ * @param {*} vm 
+ */
 export function initState (vm: Component) {
   vm._watchers = []
   const opts = vm.$options
+  // 处理 props 对象，为 props 对象的每个属性 设置响应式，并将其代理到 VM 实例上
   if (opts.props) initProps(vm, opts.props)
+  // 处理 methods 对象，校验每个属性的值是否为函数、和 props 属性比对进行判重处理，最后得到 vm[key] = methods[key]
   if (opts.methods) initMethods(vm, opts.methods)
+  /** 
+   * 做了三件事：
+   *    1、判重处理，data对象上的属性不能和props、methods对象上的属性相同
+   *    2、代理 data 对象上的属性到 VM 实例
+   *    3、为 data 对象上的数据设置响应式
+  */
   if (opts.data) {
     initData(vm)
   } else {
     observe(vm._data = {}, true /* asRootData */)
   }
+  /** 
+   * 三件事：
+   *    1、为computed[key] 创建 watcher 实例，默认是懒执行
+   *    2、代理 computed[key] 到 VM 实例
+   *    3、判重，computed 中的 key 不能和 data、props 中的属性重复
+  */
   if (opts.computed) initComputed(vm, opts.computed)
+  /**
+   * 三件事：
+   *  1、处理 watch 对象
+   *  2、为每个 watch.key 创建 watcher 实例， key 和 watcher 实例可能是 一对多 的关系
+   *  3、如果设置了 immediate，则立即执行 回调函数
+   */
   if (opts.watch && opts.watch !== nativeWatch) {
     initWatch(vm, opts.watch)
   }
+  /** 
+   * 其实这里也能看出，computed 和 watch 在本质是没有区别的，都是通过 watcher 去实现的响应式
+   * 非要说有区别，那也只是在使用方式上的区别，简单来说：
+   *  1、watch：适用于当数据变化时执行异步或者开销较大的操作时使用，即需要长时间等待的操作可以放在 watch 中
+   *  2、computed：其中可以使用异步方法，但是没有任何意义。所以 computed 更适合做一些同步计算
+  */
 }
 
+// 处理 props 对象，为 props 对象的每个属性设置响应式，并将其代理到 VM 实例上
 function initProps (vm: Component, propsOptions: Object) {
   const propsData = vm.$options.propsData || {}
   const props = vm._props = {}
+  // 缓存 props 的每个 key, 性能优化
   // cache prop keys so that future props updates can iterate using Array
   // instead of dynamic object key enumeration.
   const keys = vm.$options._propKeys = []
@@ -76,8 +111,11 @@ function initProps (vm: Component, propsOptions: Object) {
   if (!isRoot) {
     toggleObserving(false)
   }
+  // 遍历 props 对象
   for (const key in propsOptions) {
+    // 缓存 key
     keys.push(key)
+    // 获取 props[key] 的 默认值
     const value = validateProp(key, propsOptions, propsData, vm)
     /* istanbul ignore else */
     if (process.env.NODE_ENV !== 'production') {
@@ -89,6 +127,7 @@ function initProps (vm: Component, propsOptions: Object) {
           vm
         )
       }
+      // 为 props 的每个 key 是设置数据响应式
       defineReactive(props, key, value, () => {
         if (!isRoot && !isUpdatingChildComponent) {
           warn(
@@ -109,13 +148,23 @@ function initProps (vm: Component, propsOptions: Object) {
     // instantiation here.
     // 代理，this.propsKey
     if (!(key in vm)) {
+      // 代理 key 到 VM 对象上
       proxy(vm, `_props`, key)
     }
   }
   toggleObserving(true)
 }
 
+/**
+ * 做了三件事
+ *  1、判重处理，data 对象上的属性不能和 props、methods 对象上的属性相同
+ *  2、代理 data 对象上的属性到 VM 实例
+ *  3、为 data 对象上的数据设置响应式
+ *
+ * @param {Component} vm
+ */
 function initData (vm: Component) {
+  // 得到 data 对象
   let data = vm.$options.data
   data = vm._data = typeof data === 'function'
     ? getData(data, vm)
@@ -129,6 +178,11 @@ function initData (vm: Component) {
     )
   }
   // proxy data on instance
+  /**
+   * 两件事
+   *  1、判重处理，data 对象上的属性不能和 props、methods 对象上的属性相同
+   *  2、代理 data 对象上的属性到 VM 实例
+   */
   const keys = Object.keys(data)
   const props = vm.$options.props
   const methods = vm.$options.methods
@@ -154,6 +208,7 @@ function initData (vm: Component) {
     }
   }
   // observe data
+  // 为 data 对象上的数据设置响应式
   observe(data, true /* asRootData */)
 }
 
@@ -172,13 +227,21 @@ export function getData (data: Function, vm: Component): any {
 
 const computedWatcherOptions = { lazy: true }
 
+/**
+ * 三件事：
+ *  1、为 computed[key] 创建 watcher 实例，默认是懒执行
+ *  2、代理 computed[key] 到 VM 实例
+ *  2、判重，computed 中的 key 不能和 data、props 中的属性重复
+ */
 function initComputed (vm: Component, computed: Object) {
   // $flow-disable-line
   const watchers = vm._computedWatchers = Object.create(null)
   // computed properties are just getters during SSR
   const isSSR = isServerRendering()
 
+  // 遍历 computed 对象
   for (const key in computed) {
+    // 获取 key 对应的值，即 getter 函数
     const userDef = computed[key]
     const getter = typeof userDef === 'function' ? userDef : userDef.get
     if (process.env.NODE_ENV !== 'production' && getter == null) {
@@ -189,11 +252,13 @@ function initComputed (vm: Component, computed: Object) {
     }
 
     if (!isSSR) {
+      // 为 computed 属性创建 watcher 实例
       // create internal watcher for the computed property.
       watchers[key] = new Watcher(
         vm,
         getter || noop,
         noop,
+        // 配置项，computed 默认是 懒执行
         computedWatcherOptions
       )
     }
@@ -202,8 +267,11 @@ function initComputed (vm: Component, computed: Object) {
     // component prototype. We only need to define computed properties defined
     // at instantiation here.
     if (!(key in vm)) {
+      // 代理 computed 对象中的属性到 VM 实例
+      // 这样就可以使用 vm.computedkey 访问计算属性了
       defineComputed(vm, key, userDef)
     } else if (process.env.NODE_ENV !== 'production') {
+      // 非生产环境有一个判重处理，computed 对象中的属性不能和 data、props 中的属性相同
       if (key in vm.$data) {
         warn(`The computed property "${key}" is already defined in data.`, vm)
       } else if (vm.$options.props && key in vm.$options.props) {
@@ -215,12 +283,17 @@ function initComputed (vm: Component, computed: Object) {
   }
 }
 
+/**
+ *  代理 computed 对象中的 key 到 target(vm) 上
+ *
+ */
 export function defineComputed (
   target: any,
   key: string,
   userDef: Object | Function
 ) {
   const shouldCache = !isServerRendering()
+  // 构造属性描述符(get、set)
   if (typeof userDef === 'function') {
     sharedPropertyDefinition.get = shouldCache
       ? createComputedGetter(key)
@@ -243,6 +316,7 @@ export function defineComputed (
       )
     }
   }
+  // 拦截对 target.key 的访问和设置
   Object.defineProperty(target, key, sharedPropertyDefinition)
 }
 
@@ -267,8 +341,17 @@ function createGetterInvoker(fn) {
   }
 }
 
+/**
+ * 做了以下三件事，其实最关键的就是第三件事情
+ *  1、校验 methods[key]，必须是一个函数
+ *  2、判重 methods 中的 key 不能和 props 中的 key 相同
+ *          methods 中的 key 与 vue 实例上已有的方法重叠，一般是一些内置方法，比如以 $ 和 _ 开头的方法
+ *  3、将 methods[key] 放到 vm 实例上，得到 vm[key] = methods[key]
+ */
 function initMethods (vm: Component, methods: Object) {
+  // 获取 props 配置项
   const props = vm.$options.props
+  // 遍历 methods 对象
   for (const key in methods) {
     if (process.env.NODE_ENV !== 'production') {
       if (typeof methods[key] !== 'function') {
